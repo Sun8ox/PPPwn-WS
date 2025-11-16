@@ -19,11 +19,11 @@ const wss = new WebSocketServer({ port });
 
 
 // Functions 
-function broadcast(message) {
+function broadcast(json) {
     try {
         wss.clients.forEach((client) => {
             if (client.readyState === WebSocket.OPEN) {
-                client.send(message);
+                client.send(JSON.stringify(json));
             }
         });
     } catch (error) {
@@ -49,20 +49,20 @@ function startPPPwn() {
     process = spawn(pppwnProcessCMD[0], pppwnProcessCMD.slice(1));
 
     process.stdout.on("data", (data) => {
-        broadcast("LOG: " + data.toString().trim());
+        broadcast({ type: "LOG", message: data.toString().trim() });
     });
 
     process.stderr.on("data", (data) => {
-        broadcast("ERROR:" + data.toString().trim());
+        broadcast({ type: "ERROR", message: data.toString().trim() });
     });
 
     process.on("close", (code) => {
-        broadcast("STATUS: stopped");
+        broadcast({ type: "STATUS", message: "stopped" });
         process = null;
     });
 
     process.on("error", (error) => {
-        broadcast("ERROR: error");
+        broadcast({ type: "ERROR", message: "error" });
         process = null;
     });
 
@@ -78,14 +78,14 @@ if (!secretKey) console.log("WARNING: SECRET_KEY is not set. The server is runni
 wss.on("connection", (ws, req) => {
     if (secretKey) {
         if (req.headers["x-secret"] !== secretKey) {
-            ws.send("ERROR: Unauthorized");
+            ws.send(JSON.stringify({ type: "ERROR", message: "Unauthorized" }));
             ws.close();
             return;
         }
     }
 
     console.log(`New client connected from ${req.socket.remoteAddress}`);
-    ws.send("STATUS: " + (process ? "started" : "stopped"));
+    ws.send(JSON.stringify({ type: "STATUS", message: process ? "started" : "stopped" }));
 
     ws.on("message", (msg) => {
         const message = msg.toString();
@@ -93,10 +93,10 @@ wss.on("connection", (ws, req) => {
 
         if (message === "start") {
             const result = startPPPwn();
-            broadcast("STATUS: " + result);
+            broadcast({ type: "STATUS", message: result });
         } else if (message === "stop") {
             const result = killPPPwn();
-            broadcast("STATUS: " + result);
+            broadcast({ type: "STATUS", message: result });
         }
     });
 
