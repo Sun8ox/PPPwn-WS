@@ -1,0 +1,17 @@
+{
+  "name": "pppwn-ws",
+  "version": "1.0.0",
+  "description": "PPPwn control over WebSockets",
+  "license": "ISC",
+  "author": "Sun8ox",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "ws": "^8.18.3"
+  }
+}
