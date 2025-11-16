@@ -10,7 +10,7 @@ dotenv.config();
 const port = global.process.env.PORT || 8789;
 const secretKey = global.process.env.SECRET_KEY || "HomeAssistant";
 const pppwnCMD = global.process.env.PPPWN_CMD;
-const pppwnProcessCMD = pppwnCMD ? pppwnCMD.split(" ") : ["./pppwn", "-i", "eth0"];
+const pppwnProcessCMD = pppwnCMD ? pppwnCMD.trim().split(" ") : ["./pppwn", "-i", "eth0"];
 let process = null;
 
 
@@ -22,10 +22,10 @@ const wss = new WebSocketServer({ port });
 function broadcast(message) {
     try {
         wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(message);
-        }
-    });
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(message);
+            }
+        });
     } catch (error) {
         console.error("Broadcast error:", error);
     }
@@ -42,7 +42,7 @@ function killPPPwn() {
 }
 
 function startPPPwn() {
-    if(process) {
+    if (process) {
         return "already started";
     }
 
@@ -51,7 +51,7 @@ function startPPPwn() {
     process.stdout.on("data", (data) => {
         broadcast("LOG: " + data.toString().trim());
     });
-    
+
     process.stderr.on("data", (data) => {
         broadcast("ERROR:" + data.toString().trim());
     });
@@ -61,11 +61,14 @@ function startPPPwn() {
         process = null;
     });
 
+    process.on("error", (error) => {
+        broadcast("ERROR: error");
+        process = null;
+    });
+
     return "started";
 }
-
 //
-
 
 
 // WebSocket server events
@@ -73,7 +76,7 @@ console.log(`WebSocket server started on ws://localhost:${port}`);
 if (!secretKey) console.log("WARNING: SECRET_KEY is not set. The server is running without authentication.");
 
 wss.on("connection", (ws, req) => {
-    if(secretKey) {
+    if (secretKey) {
         if (req.headers["x-secret"] !== secretKey) {
             ws.send("ERROR: Unauthorized");
             ws.close();
@@ -82,8 +85,8 @@ wss.on("connection", (ws, req) => {
     }
 
     console.log(`New client connected from ${req.socket.remoteAddress}`);
+    ws.send("STATUS: " + (process ? "started" : "stopped"));
 
-    
     ws.on("message", (msg) => {
         const message = msg.toString();
 
@@ -97,5 +100,7 @@ wss.on("connection", (ws, req) => {
         }
     });
 
-
+    ws.on("close", () => {
+        console.log(`Client from ${req.socket.remoteAddress} disconnected`);
+    });
 });
