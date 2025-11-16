@@ -93,10 +93,10 @@ wss.on("connection", (ws, req) => {
 
         if (message === "start") {
             const result = startPPPwn();
-            ws.send("STATUS: " + result);
+            broadcast("STATUS: " + result);
         } else if (message === "stop") {
             const result = killPPPwn();
-            ws.send("STATUS: " + result);
+            broadcast("STATUS: " + result);
         }
     });
 
