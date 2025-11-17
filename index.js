@@ -1,6 +1,7 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { spawn } from "child_process";
 import dotenv from "dotenv";
+import url from "url";
 
 // Load environment variables
 dotenv.config();
@@ -77,7 +78,12 @@ if (!secretKey) console.log("WARNING: SECRET_KEY is not set. The server is runni
 
 wss.on("connection", (ws, req) => {
     if (secretKey) {
-        if (req.headers["x-secret"] !== secretKey) {
+        console.log("Url:" + req.url);
+
+        const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+        const secretParam = parsedUrl.searchParams.get("secret");
+
+        if (secretParam !== secretKey) {
             ws.send(JSON.stringify({ type: "ERROR", message: "Unauthorized" }));
             ws.close();
             return;
