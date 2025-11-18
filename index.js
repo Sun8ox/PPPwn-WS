@@ -34,7 +34,7 @@ function broadcast(json) {
 
 function killPPPwn() {
     if (process) {
-        process.kill();
+        process.kill("SIGKILL");
         process = null;
 
         return "stopped";
@@ -48,6 +48,7 @@ function startPPPwn() {
     }
 
     process = spawn(pppwnProcessCMD[0], pppwnProcessCMD.slice(1));
+    broadcast({ type: "STATUS", message: "started" });
 
     process.stdout.on("data", (data) => {
         broadcast({ type: "LOG", message: data.toString().trim() });
@@ -78,8 +79,6 @@ if (!secretKey) console.log("WARNING: SECRET_KEY is not set. The server is runni
 
 wss.on("connection", (ws, req) => {
     if (secretKey) {
-        console.log("Url:" + req.url);
-
         const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
         const secretParam = parsedUrl.searchParams.get("secret");
 
@@ -98,11 +97,9 @@ wss.on("connection", (ws, req) => {
 
 
         if (message === "start") {
-            const result = startPPPwn();
-            broadcast({ type: "STATUS", message: result });
+            startPPPwn();
         } else if (message === "stop") {
-            const result = killPPPwn();
-            broadcast({ type: "STATUS", message: result });
+            killPPPwn();
         }
     });
 
