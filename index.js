@@ -36,19 +36,17 @@ function killPPPwn() {
     if (process) {
         process.kill("SIGKILL");
         process = null;
-
-        return "stopped";
     }
-    return "already stopped";
+    broadcast({ type: "STATUS", message: "stopped" });
 }
 
 function startPPPwn() {
     if (process) {
-        return "already started";
+        broadcast({ type: "STATUS", message: "started" });
+        return;
     }
 
     process = spawn(pppwnProcessCMD[0], pppwnProcessCMD.slice(1));
-    broadcast({ type: "STATUS", message: "started" });
 
     process.stdout.on("data", (data) => {
         broadcast({ type: "LOG", message: data.toString().trim() });
@@ -68,7 +66,7 @@ function startPPPwn() {
         process = null;
     });
 
-    return "started";
+    broadcast({ type: "STATUS", message: "started" });
 }
 //
 
@@ -95,11 +93,13 @@ wss.on("connection", (ws, req) => {
     ws.on("message", (msg) => {
         const message = msg.toString();
 
-
         if (message === "start") {
             startPPPwn();
-        } else if (message === "stop") {
+        } else if (message === "stop" || message === "kill") {
             killPPPwn();
+        }
+        else if (message === "status") {
+            broadcast({ type: "STATUS", message: process ? "started" : "stopped" });
         }
     });
 
