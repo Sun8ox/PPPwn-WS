@@ -34,7 +34,7 @@ function broadcast(json) {
 
 function killPPPwn() {
     if (process) {
-        process.kill();
+        process.kill("SIGKILL");
         process = null;
 
         return "stopped";
