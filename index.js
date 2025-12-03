@@ -9,10 +9,11 @@ dotenv.config();
 
 // Variables
 const port = global.process.env.PORT || 8789;
-const secretKey = global.process.env.SECRET_KEY || "HomeAssistant";
+const secretKey = global.process.env.SECRET_KEY || "SecretKey";
 const pppwnCMD = global.process.env.PPPWN_CMD;
 const pppwnProcessCMD = pppwnCMD ? pppwnCMD.trim().split(" ") : ["./pppwn", "-i", "eth0"];
-let process = null;
+// Track PPPwn subprocess separately to avoid shadowing Node's global `process`
+let pppwnProcess = null;
 
 
 // Create WebSocket server
@@ -33,37 +34,76 @@ function broadcast(json) {
 }
 
 function killPPPwn() {
-    if (process) {
-        process.kill("SIGKILL");
-        process = null;
+    if (!pppwnProcess) {
+        broadcast({ type: "STATUS", message: "stopped" });
+        return;
     }
-    broadcast({ type: "STATUS", message: "stopped" });
+
+    try {
+        // Attempt to terminate the entire process group created by detached spawn
+        const pid = pppwnProcess.pid;
+        if (pid && pid > 0) {
+            try {
+                // First try graceful stop
+                global.process.kill(-pid, "SIGTERM");
+            } catch (e) {
+                // Fallback: kill the child directly
+                try { global.process.kill(pid, "SIGTERM"); } catch {}
+            }
+
+            // Give it a short window to exit, then force kill
+            setTimeout(() => {
+                try {
+                    global.process.kill(-pid, "SIGKILL");
+                } catch (e) {
+                    try { global.process.kill(pid, "SIGKILL"); } catch {}
+                }
+            }, 250);
+        }
+
+        // Clean up listeners and state
+        try { pppwnProcess.stdout?.removeAllListeners?.("data"); } catch {}
+        try { pppwnProcess.stderr?.removeAllListeners?.("data"); } catch {}
+        try { pppwnProcess.removeAllListeners?.("close"); } catch {}
+        try { pppwnProcess.removeAllListeners?.("error"); } catch {}
+    } finally {
+        pppwnProcess = null;
+        broadcast({ type: "STATUS", message: "stopped" });
+    }
 }
 
 function startPPPwn() {
-    if (process) {
+    if (pppwnProcess) {
         broadcast({ type: "STATUS", message: "started" });
         return;
     }
 
-    process = spawn(pppwnProcessCMD[0], pppwnProcessCMD.slice(1));
+    // Spawn detached so the child has its own process group; use pipes for logs
+    pppwnProcess = spawn(pppwnProcessCMD[0], pppwnProcessCMD.slice(1), {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: global.process.env,
+    });
 
-    process.stdout.on("data", (data) => {
+    // Prevent child from keeping the event loop alive unnecessarily
+    try { pppwnProcess.unref(); } catch {}
+
+    pppwnProcess.stdout.on("data", (data) => {
         broadcast({ type: "LOG", message: data.toString().trim() });
     });
 
-    process.stderr.on("data", (data) => {
+    pppwnProcess.stderr.on("data", (data) => {
         broadcast({ type: "ERROR", message: data.toString().trim() });
     });
 
-    process.on("close", (code) => {
+    pppwnProcess.on("close", () => {
         broadcast({ type: "STATUS", message: "stopped" });
-        process = null;
+        pppwnProcess = null;
     });
 
-    process.on("error", (error) => {
-        broadcast({ type: "ERROR", message: "error" });
-        process = null;
+    pppwnProcess.on("error", (err) => {
+        broadcast({ type: "ERROR", message: `error: ${err?.message || "unknown"}` });
+        pppwnProcess = null;
     });
 
     broadcast({ type: "STATUS", message: "started" });
@@ -88,7 +128,7 @@ wss.on("connection", (ws, req) => {
     }
 
     console.log(`New client connected from ${req.socket.remoteAddress}`);
-    ws.send(JSON.stringify({ type: "STATUS", message: process ? "started" : "stopped" }));
+    ws.send(JSON.stringify({ type: "STATUS", message: pppwnProcess ? "started" : "stopped" }));
 
     ws.on("message", (msg) => {
         const message = msg.toString();
@@ -99,7 +139,7 @@ wss.on("connection", (ws, req) => {
             killPPPwn();
         }
         else if (message === "status") {
-            broadcast({ type: "STATUS", message: process ? "started" : "stopped" });
+            broadcast({ type: "STATUS", message: pppwnProcess ? "started" : "stopped" });
         }
     });
 
@@ -107,3 +147,13 @@ wss.on("connection", (ws, req) => {
         console.log(`Client from ${req.socket.remoteAddress} disconnected`);
     });
 });
+
+// Graceful shutdown of server and child
+for (const sig of ["SIGINT", "SIGTERM"]) {
+    global.process.on(sig, () => {
+        try { killPPPwn(); } catch {}
+        try { wss.close(); } catch {}
+        // Slight delay to allow broadcasts
+        setTimeout(() => global.process.exit(0), 200);
+    });
+}
